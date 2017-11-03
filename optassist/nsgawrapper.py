@@ -6,16 +6,23 @@ import pdb
 import random
 from inspect import getargspec
 
-import nsga
-import utilities as utils
+import NSGA
 from loggedopt import LoggedOpt
+
+def make_iter(val):
+    try:
+        iter(val)
+    except:
+        val = [val]
+    return val
 
 class NSGALoggedOpt(LoggedOpt):
 
 
-    def __init__(self, log_name=None, log_location=None):
+    def __init__(self, log_name=None, log_location=None, log=True):
         LoggedOpt.__init__(self, log_name, log_location)
         self.objective = None
+        self.bLog = log
         self.lb = None
         self.ub = None
 
@@ -40,11 +47,12 @@ class NSGALoggedOpt(LoggedOpt):
         for c in candidates:
             dvs = self.scaleToDV(c)
             objs = self.objective(dvs)
-            fitness.append(nsga.Pareto([ob for ob in utils.make_iter(objs)]))
+            fitness.append(NSGA.Pareto([ob for ob in make_iter(objs)]))
 
             self.x_log.append(dvs)
             self.q_log.append(objs)
-            self.writeToLog({'x':dvs, 'q':objs})
+            if self.bLog:
+                self.writeToLog({'x':dvs, 'q':objs})
 
         return fitness
 
@@ -72,7 +80,7 @@ class NSGALoggedOpt(LoggedOpt):
         lb, ub = self.lb, self.ub
 
         optlb, optub = [0. for _ in lb], [10. for _ in ub]
-        bounder = nsga.Bounder(optlb, optub)
+        bounder = NSGA.Bounder(optlb, optub)
 
         generator = self._defaultGenerator(len(lb))
         if seeds:
@@ -92,7 +100,7 @@ class NSGALoggedOpt(LoggedOpt):
         if kwargs.setdefault('check', True):
             self.overwrite_log_file()
 
-        theNSGA = nsga.NSGA2()
+        theNSGA = NSGA.NSGA2()
         final_pop = theNSGA.evolve(seeds=cseeds,
                                 pop_size=pop_size,
                                 max_generations=max_gen,

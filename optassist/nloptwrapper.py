@@ -330,6 +330,8 @@ class NLOptLoggedOpt(LoggedOpt):
             alg = nlopt.LD_LBFGS
         elif algorithm.lower() == 'slsqp' or algorithm.lower() == 'sqp':
             alg = nlopt.LD_SLSQP
+        elif algorithm.lower() == 'mma':
+            alg = nlopt.LD_MMA
         elif algorithm.lower() == 'coblya':
             alg = nlopt.LN_COBYLA
         elif algorithm.lower() == 'bobyqa':
