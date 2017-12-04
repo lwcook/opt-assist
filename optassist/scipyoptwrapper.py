@@ -43,6 +43,7 @@ class ScipyLoggedOpt(LoggedOpt):
             self.clog_file = os.getcwd().rstrip('/') + '/output/'+clog_name+'.txt'
 
         self.objective = None
+        self.observer = None
         self.fg = []
         self.fgeq = []
         self.constr_log = []
@@ -66,6 +67,9 @@ class ScipyLoggedOpt(LoggedOpt):
     def addEqConstraint(self, func):
         self.fgeq.append(func)
         self.constr_log.append([])
+
+    def addObserver(self, func):
+        self.observer = func
 
     def _createLoggedObjective(self, fobj):
 
@@ -98,6 +102,9 @@ class ScipyLoggedOpt(LoggedOpt):
             self.evals += 1
             self.eval_log.append(self.evals)
             self.writeToLog({'x': x, 'q':q, 'grad':g, 'evals':self.evals})
+
+            if self.observer is not None:
+                self.observer()
 
             return q, np.array(g)
 
