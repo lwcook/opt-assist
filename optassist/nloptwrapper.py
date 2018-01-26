@@ -10,12 +10,14 @@ import nlopt
 
 import scipy.optimize as opt
 
+
 def make_iter(val):
     try:
         iter(val)
     except:
         val = [val]
     return val
+
 
 class NLOptLoggedOpt(LoggedOpt):
 
@@ -40,9 +42,9 @@ class NLOptLoggedOpt(LoggedOpt):
         LoggedOpt.__init__(self, log_name, log_location)
         ## Addditonally need constraint logs
         if log_location:
-            self.clog_file = log_location.rstrip('/') + '/' + clog_name +'.txt'
+            self.clog_file = log_location.rstrip('/') + '/' + clog_name + '.txt'
         else:
-            self.clog_file = os.getcwd().rstrip('/') + '/output/'+clog_name+'.txt'
+            self.clog_file = os.getcwd().rstrip('/') + '/output/'+clog_name + '.txt'
 
         self.objective = None
         self.observer = None
@@ -51,77 +53,62 @@ class NLOptLoggedOpt(LoggedOpt):
         self.constr_log = []
         self.verbose = False
 
-
-    def addConstraint(self, func):
-        self.fg.append(func)
-        self.constr_log.append([])
-
-    def addEqConstraint(self, func):
-        self.fgeq.append(func)
-        self.constr_log.append([])
-
-    def addObserver(self, func):
-        self.observer = func
-
-    def _createLoggedObjective(self, fobj):
+    def _createLoggedObjective(self, fobj, jac=False):
 
         def func(x, grad):
+            self.evals += 1
+            self.eval_log.append(self.evals)
 
-            out = make_iter(fobj(x))
-            if len(out) == 1:
-                raise Exception('''Objective funciton should return the objective
-                and a gradient (which can be empty)''')
-            if len(out) >= 2:
-                q, g = out[0], out[1]
-                self.q_log.append(q)
-                self.g_log.append(g)
-            if len(out) >= 3:
-                mdict = out[2]
-                self.dict_log.append(mdict)
-            if len(out) >= 4:
-                raise Exception('Objective funciton returning too many values')
+            if jac:
+                q, qg = fobj(x)
+                self.g_log.append([gi for gi in qg])
+                self.writeToLog({'x': x, 'q': q, 'grad': qg, 'evals': self.evals})
 
-            if grad is not None and grad.size > 0:
-                self.g_log.append([gi for gi in g])
-                for i, _ in enumerate(x):
-                    grad[i] = g[i]
+                if grad is not None and grad.size > 0:
+                    for i, _ in enumerate(x):
+                        grad[i] = qg[i]
+            else:
+                q = fobj(x)
+                self.writeToLog({'x': x, 'q': q, 'evals': self.evals})
+
+            self.q_log.append(q)
+            self.x_log.append([xi for xi in x])
 
             if self.verbose:
                 print '-----------------------------------------------'
                 print 'DVs: ', x
                 print 'q: ', q
-                print 'grad: ', grad
+                if jac:
+                    print 'grad: ', qg
                 print '-----------------------------------------------'
 
             if self.observer is not None:
                 self.observer()
 
-            self.x_log.append([xi for xi in x])
-            self.evals += 1
-            self.eval_log.append(self.evals)
-            self.writeToLog({'x': x, 'q':q, 'grad':g, 'evals':self.evals})
-
             return q
 
         return func
 
-    def _createLoggedConstraint(self, fg, iconstraint=0):
+    def _createLoggedConstraint(self, fc, jac=False, iconstraint=0):
         '''NLopt expects constraints in the form g <= 0'''
 
         def func(x, grad):
-            g, ggrad = fg(x)[0:2]
-            if grad.size > 0:
-                for i, _ in enumerate(x):
-                    grad[i] = ggrad[i]
+            if jac:
+                c, cg = fc(x)[0:2]
+                if grad.size > 0:
+                    for i, _ in enumerate(x):
+                        grad[i] = cg[i]
+                self.writeToLog({'x': x, 'constraint': c, 'cgrad': cg},
+                        log_file=self.clog_file)
+            else:
+                c = fc(x)
+                self.writeToLog({'x': x, 'constraint': c}, log_file=self.clog_file)
+            self.constr_log[iconstraint].append(c)
 
             if self.verbose:
-                print 'Constraint: ', g
+                print 'Constraint: ', c
 
-            self.constr_log[iconstraint].append(g)
-            self.writeToLog({'x':x, 'constraint':g, 'cgrad':ggrad},
-                    log_file=self.clog_file)
-
-            return g
+            return c
 
         return func
 
@@ -143,22 +130,30 @@ class NLOptLoggedOpt(LoggedOpt):
             if self.fg:
                 self.overwriteLogFile(self.clog_file)
         else:
-            with open(self.log_file, 'w') as f: pass
+            with open(self.log_file, 'w'): pass
             if self.fg:
-                with open(self.clog_file, 'w') as f: pass
+                with open(self.clog_file, 'w'): pass
 
         self.verbose = kwargs.setdefault('verbose', False)
 
-        kwargs['ineq_constraints'] = \
-            [self._createLoggedConstraint(fg, ig)
-                for ig, fg in enumerate(self.fg)]
+        kwargs['ineq_constraints'] = []
+        for ig, fg in enumerate(self.fg):
+            fun = fg[0]
+            jac = fg[1]
+            kwargs['ineq_constraints'].append(
+                    self._createLoggedConstraint(fun, jac, ig))
         N_ineq = len(self.fg)
 
-        kwargs['eq_constraints'] = \
-            [self._createLoggedConstraint(fg, ig+N_ineq)
-                for ig, fg in enumerate(self.fgeq)]
+        kwargs['eq_constraints'] = []
+        for ig, fgeq in enumerate(self.fgeq):
+            fun = fgeq[0]
+            jac = fgeq[1]
+            kwargs['eq_constraints'].append(
+                    self._createLoggedConstraint(fun, jac, ig+N_ineq))
 
-        fobj = self._createLoggedObjective(self.objective)
+        obj_fun = self.objective[0]
+        obj_jac = self.objective[1]
+        fobj = self._createLoggedObjective(obj_fun, obj_jac)
 
         algorithm = kwargs.setdefault('alg', 'SLSQP')
         if algorithm.lower() == 'bfgs' or algorithm.lower() == 'lbfgs':
@@ -167,7 +162,7 @@ class NLOptLoggedOpt(LoggedOpt):
             alg = nlopt.LD_SLSQP
         elif algorithm.lower() == 'mma':
             alg = nlopt.LD_MMA
-        elif algorithm.lower() == 'coblya':
+        elif algorithm.lower() == 'cobyla':
             alg = nlopt.LN_COBYLA
         elif algorithm.lower() == 'bobyqa':
             alg = nlopt.LN_BOBYQA
@@ -185,8 +180,6 @@ class NLOptLoggedOpt(LoggedOpt):
         theNLopt.set_ftol_abs(kwargs.setdefault('ftol_abs', 1e-4)) # (fi - fi+1)
         theNLopt.set_maxeval(kwargs.setdefault('maxeval', 100))
 
-
-
         if kwargs.setdefault('ineq_constraints', []):
             for g in kwargs.setdefault('ineq_constraints', []):
                 theNLopt.add_inequality_constraint(g, 1e-3)
@@ -196,8 +189,8 @@ class NLOptLoggedOpt(LoggedOpt):
                 theNLopt.add_equality_constraint(g, 1e-3)
 
         #### RUN THE OPTIMIZATION ###
-        xmin = theNLopt.optimize(x0)
-        fmin = theNLopt.last_optimum_value()
+        theNLopt.optimize(x0)
+        theNLopt.last_optimum_value()
 
         flag = 1
         return flag

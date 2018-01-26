@@ -4,8 +4,8 @@ import sys
 import os
 import json
 
-import nlopt
 import scipy.optimize as opt
+
 
 def make_iter(val):
     try:
@@ -14,9 +14,11 @@ def make_iter(val):
         val = [val]
     return val
 
+
 class Log():
 
-    def __init__(self, log_name=None, log_location=None, date=None, bDate=True):
+    def __init__(self, log_name=None, log_location=None,
+            date=None, bDate=True):
 
         if log_name is None:
             log_name = 'log'
@@ -53,7 +55,7 @@ class Log():
             else:
                 if os.path.isfile(self.log_file):
                     os.remove(self.log_file)
-                with open(self.log_file, 'w') as f:
+                with open(self.log_file, 'w'):
                     pass
 
     def write_to_log(self, data, log_file=None):
@@ -73,9 +75,8 @@ class Log():
             log_file = self.log_file
 
         with open(log_file, 'a') as f:
-            json.dump(data, f)
+            f.write(json.dumps(data))
             f.write('\r\n')
-
 
     def readFromLog(self, log_file=None):
 
@@ -90,8 +91,9 @@ class Log():
 
 class LoggedOpt(Log):
 
+    def __init__(self, log_name=None, log_location=None, verbose=False):
 
-    def __init__(self, log_name=None, log_location=None):
+        self.verbose = verbose
 
         Log.__init__(self, log_name, log_location)
 
@@ -100,7 +102,6 @@ class LoggedOpt(Log):
         self.ub = None
 
         self._resetLogs()
-
 
     def _resetLogs(self):
         self.x_log = []
@@ -113,15 +114,8 @@ class LoggedOpt(Log):
         self.constr_log = []
         self.evals = 0
 
-
-    def setObjective(self, fobj):
-#        argspec = getargspec(fobj)
-#        if len(argspec[0]) > 1:
-#            raise TypeError('''Input function must take one argument''')
-#        else:
-#            self.objective = fobj
-        self.objective = fobj
-
+    def setObjective(self, fobj, jac=False):
+        self.objective = (fobj, jac)
 
     def setBounds(self, lb, ub):
         if len(lb) != len(ub):
@@ -130,62 +124,27 @@ class LoggedOpt(Log):
             self.lb = make_iter(lb)
             self.ub = make_iter(ub)
 
+    def addConstraint(self, func, jac=False):
+        self.fg.append((func, jac))
+        self.constr_log.append([])
+
+    def addEqConstraint(self, func, jac=False):
+        self.fgeq.append((func, jac))
+        self.constr_log.append([])
+
+    def addObserver(self, func):
+        self.observer = func
 
     def scaleToCand(self, dvs):
         lb, ub = self.lb, self.ub
         return [10.*(dvs[i]-lb[i])/(ub[i]-lb[i]) for i in range(len(dvs))]
 
-
     def scaleToDV(self, cand):
         lb, ub = self.lb, self.ub
         return [lb[i] + (ub[i]-lb[i])*(cand[i]/10.) for i in range(len(cand))]
 
-
     def runOptimization(self):
         raise Exception('Overwrite optimize function')
-
-
-    def _tryOptimziation(self, f, x0, lb, ub, **kwargs):
-
-        algorithm = kwargs.setdefault('alg', 'SLSQP')
-        if algorithm.lower() == 'slsqp' or algorithm.lower() == 'sqp':
-            alg = nlopt.LD_SLSQP
-        if algorithm.lower() == 'coblya':
-            alg = nlopt.LN_COBYLA
-
-        opt = nlopt.opt(alg, len(x0))
-
-        opt.set_min_objective(f)
-        opt.set_lower_bounds(lb)
-        opt.set_upper_bounds(ub)
-
-        maxeval = kwargs.setdefault('maxeval', 50)
-        xtol_rel = kwargs.setdefault('xtol_rel', 1e-4)  # (xi - xi+1)/x
-        xtol_abs = kwargs.setdefault('xtol_abs', 1e-4)  # (xi - xi+1)
-        ftol_rel = kwargs.setdefault('ftol_rel', 1e-4)  # (fi - fi+1)/f
-        ftol_abs = kwargs.setdefault('ftol_abs', 1e-4)  # (fi - fi+1)
-        gtol = kwargs.setdefault('gtol', 1e-3)
-        # Create the optimzitaion object by specifying algorithm and dimension
-        # opt = nlopt.opt(nlopt.LD_MMA, len(xk))
-
-        opt.set_xtol_rel(xtol_rel)
-        opt.set_xtol_abs(xtol_abs)
-        opt.set_ftol_rel(ftol_rel)
-        opt.set_ftol_abs(ftol_abs)
-        opt.set_maxeval(maxeval)
-
-        if kwargs.setdefault('ineq_constraints', []):
-            for g in kwargs.setdefault('ineq_constraints', []):
-                opt.add_inequality_constraint(g, gtol)
-
-        if kwargs.setdefault('eq_constraints', []):
-            for g in kwargs.setdefault('eq_constraints', []):
-                opt.add_equality_constraint(g, gtol)
-
-        xmin = opt.optimize(x0)
-        fmin = opt.last_optimum_value()
-
-        return xmin, fmin
 
 
 def main():

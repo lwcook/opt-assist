@@ -6,8 +6,9 @@ import json
 
 from loggedopt import LoggedOpt
 
-import scipy.optimize as opt
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
 
+import pyOpt
 
 def make_iter(val):
     try:
@@ -17,7 +18,7 @@ def make_iter(val):
     return val
 
 
-class ScipyLoggedOpt(LoggedOpt):
+class PyOptLoggedOpt(LoggedOpt):
 
     '''
     IMPORTANT, for NLopt:
@@ -30,14 +31,14 @@ class ScipyLoggedOpt(LoggedOpt):
         NLopt expects constraints in the form g <= 0
     '''
 
-    def __init__(self, log_name=None, clog_name=None, log_location=None, verbose=False):
+    def __init__(self, log_name=None, clog_name=None, log_location=None):
 
         if log_name is None:
             log_name = 'optlog_q'
         if clog_name is None:
             clog_name = 'optlog_c'
 
-        LoggedOpt.__init__(self, log_name, log_location, verbose)
+        LoggedOpt.__init__(self, log_name, log_location)
         ## Addditonally need constraint logs
         if log_location:
             self.clog_file = log_location.rstrip('/') + '/' + clog_name + '.txt'
@@ -48,7 +49,7 @@ class ScipyLoggedOpt(LoggedOpt):
         self.observer = None
         self.fg = []
         self.fgeq = []
-        self.bounds = None
+        self.verbose = False
 
     def setBounds(self, lb, ub):
         if len(lb) != len(ub):
@@ -121,8 +122,9 @@ class ScipyLoggedOpt(LoggedOpt):
 
     def runOptimization(self, **kwargs):
 
-        if self.objective is None:
-            raise Exception('''Objective not set, please use set_objective(fobj)''')
+        if self.objective is None or (self.lb is None or self.ub is None):
+            raise Exception('''Objective or bounds not set, please use
+                set_objective(fobj) and set_bounds(lb, ub))''')
 
         x0 = kwargs.setdefault('x0', None)
         if x0 is None:
@@ -144,6 +146,7 @@ class ScipyLoggedOpt(LoggedOpt):
         ######################################################################
 
         scipy_constrs = []
+
         cjac = kwargs.setdefault('jac', False)
         for fg in self.fg:
             ctype = 'ineq'
@@ -151,11 +154,13 @@ class ScipyLoggedOpt(LoggedOpt):
             cjac = self._createLoggedConstraint(fg[1], jac=False)
             scipy_constrs.append({'type': ctype, 'fun': cfun, 'jac': cjac})
 
-        for fgeq in self.fgeq:
-            ctype = 'eq'
-            cfun = self._createLoggedConstraint(fgeq[0], jac=False)
-            cjac = self._createLoggedConstraint(fgeq[1], jac=False)
-            scipy_constrs.append({'type': ctype, 'fun': cfun, 'jac': cjac})
+#        for fgeq in self.fgeq:
+#            ctype = 'eq'
+#            cfun = self._createLoggedConstraint(fgeq[0], jac=False)
+#            cjac = self._createLoggedConstraint(fgeq[1], jac=False)
+#            scipy_constrs.append({'type': ctype, 'fun': cfun, 'jac': cjac})
+        if len(scipy_constrs) == 2:
+            scipy_constrs = scipy_constrs[0]
 
         obj_fun = self.objective[0]
         obj_jac = self.objective[1]
@@ -166,10 +171,22 @@ class ScipyLoggedOpt(LoggedOpt):
         maxeval = kwargs.setdefault('maxeval', 100)
         opts = kwargs.setdefault('options', {'maxiter': maxeval})
 
-        self.result = opt.minimize(fobj, x0, jac=obj_jac, method=algorithm.upper(),
-                bounds=self.bounds, constraints=scipy_constrs, tol=tol, options=opts)
+#        self.result = opt.minimize(fobj, x0, jac=obj_jac, method=algorithm.upper(),
+#                bounds=self.bounds, constraints=scipy_constrs, tol=tol, options=opts)
+        theProb = pyOpt.Optimization('Logged Optimization', obj_fun)
+        theProb.addObj('f')
+        for i, b in enumerate(self.bounds):
+            theProb.addVar('x'+str(i), 'c', lower=b[0], upper=b[1], value=x0[i])
 
-        return self.result
+        theOpt = pyOpt.SLSQP()
+        theOpt(theProb, sens_type=obj_jac)
+
+        ### INCOMPLETE
+
+        print theProb
+
+        flag = 1
+        return flag
 
 
 def main():
